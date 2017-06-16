@@ -1,4 +1,4 @@
-# Ember Components You Need to User
+# Ember Components You Need to Use
 
 - ember-cli-prop-types
 - ember-awesome-macros

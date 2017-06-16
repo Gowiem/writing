@@ -27,6 +27,7 @@ end
 ```
 
 ```ruby
+# backend/app/resources/post_resource.rb
 class PostResource < JSONAPI::Resource
   attributes :title, :content, :you_get_the_idea
 
