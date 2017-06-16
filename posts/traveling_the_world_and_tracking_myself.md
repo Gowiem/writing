@@ -56,4 +56,53 @@ So here we accepts the incoming location JSON data from the MenuBar application,
 
 ## Fetching my Location
 
-My location is now stored in Redis, but how do we get it out? 
+My location is now stored in Redis, but how do we get it out? Well, the web service that can write the data can obviously read the data which is where my `/last_location` endpoint comes in. Here it is:
+
+```elixir
+@doc """
+/last_location
+An endpoint to fetch the last location pushed onto the 'locations' REDIS list.
+Returns the full JSON payload of that last entry.
+"""
+get "/last_location" do
+  {:ok, location_json } = :poolboy.transaction(:redis_pool, fn(worker) -> Redix.command(worker, ~w(LINDEX locations -1)) end)
+  conn = conn |> Plug.Conn.put_resp_header("content-type", "application/json")
+              |> Plug.Conn.put_resp_header("Access-Control-Allow-Origin", "https://mattgowie.com")
+  send_resp(conn, 200, location_json)
+end
+```
+
+Here I'm pulling the last location JSON blob (surprise, surprise) that was inserted into the Redis List, setting some headers, and then responding with that JSON. Pretty straightforward and now I can pull the info for my last [location for my website](https://github.com/Gowiem/mattgowie.com/blob/master/src/js/main.js) like so:
+
+```javascript
+var addCurrentLocation = function() {
+  var $currentLocation = $('.current-location'),
+      $pin = $('.pin');
+  $.getJSON('https://whereami.mattgowie.com/last_location', function(data) {
+    var city = data['city'],
+        country = data['country'],
+        countryLong = data['country_long'],
+        gmapUrl = "https://www.google.com/maps/place/" + data['latitude'] + ',' + data['longitude'],
+        currentLocText;
+
+    if ((countryLong.length + city.length + 2) > 20) {
+      currentLocText = city + ", " + country;
+    } else {
+      currentLocText = city + ", " + countryLong;
+    }
+
+    $currentLocation.text(currentLocText);
+    $currentLocation.wrap("<a href='" + gmapUrl + "' title='Google Maps link to my current location' target='_blank'></a>");
+    $pin.removeClass('hidden');
+  });
+}
+```
+Written in old fashioned ES5 JavaScript because who introduces ES6 to a static site?
+
+And Viola, I've got myself some auto-updating 'Current Location' text on my website!
+
+## The Future
+
+What's great about the above is that it has some cool potential. With using the Redis List type instead of a single key that gets overwritten, I have a running tally of where I've been. Let's say tomorrow I want to show a Google Map view on my website with markers for each City I visited? I can pull the full Redis list, dedupe locations by filtering on a particular Lat/Lon diameter, and then create a marker for each unique location and boom, bam, pow got myself a map of where I've been. Sweet, right?
+
+This project was fun to build and writing all of this down has given me some ideas... so expect to see more from this front soon!
