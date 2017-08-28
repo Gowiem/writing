@@ -3,4 +3,5 @@
 - ember-cli-prop-types
 - ember-awesome-macros
 - ember-truth-helpers
--
+- https://ember-decorators.github.io
+- 
