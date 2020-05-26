@@ -19,54 +19,67 @@ If you're a bit hazy on the Device Flow, then here is a quick refresher from the
 
 [!Device Code Grant Diagram](https://is.docs.wso2.com/en/5.11.0/assets/img/using-wso2-identity-server/deviceflow.png)
 
-## FusionAuth Setup
+## Setup Instructions
 
-First things first, we need to setup FusionAuth (FA) on our local machines to properly be able to test our CLI app. If you haven't already played around with FA then I suggest checking out their [5 minute setup guide](https://fusionauth.io/docs/v1/tech/5-minute-setup-guide) and stopping after you've completed step #3. That should get you setup with a running FA / OAuth server which our CLI app can authenticate with.
+First things first, to follow along you'll need golang obviously. If you don't already have go on your local machine, [go ahead and install it over here](https://golang.org/doc/install).
 
-Next, we'll need to setup our CLI app's FA Application. Follow these steps to do so:
+Next, we need to setup FusionAuth (FA) on our local machines to properly be able to test our CLI app. If you haven't already played around with FA then I suggest checking out their [5 minute setup guide](https://fusionauth.io/docs/v1/tech/5-minute-setup-guide) and stopping after you've completed step #3. That should get you setup with a running FA / OAuth server which our CLI app can authenticate with.
+
+Now that we've got FA running, we'll need to setup our CLI app's FA Application. Follow these steps to do so:
 
 1. Head over to [FA's Applications UI](http://localhost:9011/admin/application/)
-1. Click the "➕" button to add a new Application.
+1. Click the green "➕" button to add a new Application.
 1. Give your Application a good name so you remember what it is. "Device Code Grant Example" isn't a bad choice.
 1. Click on the OAuth tab and under "Enabled grants", check off "Device". This will enable support for the Device Code Grant type on our newly created Application.
-1. Since it is required, be sure to fill in the "Device verification URL" field. You can just put "http://example.com/device" if you'd like since we don't need this.
-   1. Since our CLI app is actually running from a device with a browser, we don't need to provide a friendly URL to the user as we can open FA's `/oauth2/device` URL directly. More on this later!
+1. Since it is required, be sure to fill in the "Device verification URL" field. You can just put "http://example.com/device" if you'd like since we don't need this for our particular application.
+   1. Since our CLI app is actually running from a device with a browser, we don't need to provide a friendly URL to the user as we can open FA's `/oauth2/device` URL directly. Neat!
 1. Your application form should look something like the below, if so then you're doing great! Click the save button in the top right.
     ![FA Create Application Example](../img/fa-create-application-example.png)
 1. Now, view your newly created application by clicking the green "🔍" and copy the Client ID as we'll need that later.
 
-Great -- your FA Application is setup and we're good to move onto the fun stuff!
+Great -- your FA Application is setup, so now we just need two more things from the FA UI before moving forward:
+
+1. Your **Tenant ID** -- You can find find this easily by clicking the "Tenants" tab on the left sidebar and then copying the "Id" value for the "Default" tenant.
+1. A new **API Key** -- This one requires a couple more clicks:
+   1. Click "Settings > API Keys" on the left sidebar.
+   1. Next click our friendly green "➕" button to add a new API Key.
+   1. Give your new key a name (again, you can't go wrong with "Device Code Grant Example") and leave everything else the same. Hit save.
+   1. Finally, copy the "Id" value for your new key from the table.
+
+Sweet, our FA administrivia is out of the way now that we have our Client ID, Tenant ID, and API Key! Hurrah!
+
+Finally, let's get our CLI app cloned and setup so you can follow along:
+
+1. Open up your favorite terminal and clone our project: `git clone git@github.com:masterpointio/getgif.git`
+1. Change directories into this new project and crack open the `.env` file with your favorite text editor. Here you'll see 3 variables that should look familar! Fill in those variables with your Client ID, Tenant ID, and API Key and then save and exit that file.
+1. Lastly, let's build our CLI app via `go build .` -- This should create a `getgif` binary in the root of the project.
+
 
 ## Golang CLI App Intro
 
-Okay, so now we need a Golang CLI app that requires authentication to do something cool. Gifs are cool, right? Let's make this CLI app's purpose to fetch cool gifs!
-
-![Cool](https://media0.giphy.com/media/62PP2yEIAZF6g/giphy.gif?cid=ecf05e47ae68efd8e5b441b392bbdcd3f3943972133da5ca&rid=giphy.gif)
-
-Let's call this CLI app `getgif` and it'll work something like this:
-
-1. We'll have a `login` subcommand that will be responsible for our Device Flow login process and saving our user's session.
-1. We'll have a `fetch` subcommand that will be responsible for fetching our 😎 gifs. This will only fetch gifs if our user is authenticated (i.e. they've successfully completed the `login` process).
-1. We'll have a `logout` subcommand that will be responsible for logging out our user (removing the user's session).
-
-That looks great! To help you follow along, I've already built `getgif` over at [masterpointio/getgif](https://github.com/masterpointio/getgif). You can check that out as we walkthrough the important bits below.
-
-Using that app, we can do `getgif help` to see our command structure and what we're going to end up with:
+I bet you're asking yourself: "So what is this `getgif` project that I just built?". Well, I'll tell you, but first let's have the `help` command do some of that work for me:
 
 ![getgif help](../img/fa-getgif-help.png)
 
-Awesome -- next up let's talk about our `login` command as that is going to cover the most important part of our little example application: Authentication using the Device Flow.
+Now you're probably saying to yourself "Oooh I get it now...", but let me break it down just in case:
+
+1. We've got our CLI example app: `getgif`. It has 3 primary commands: `login`, `fetch`, and `logout`
+1. The `login` command is responsible for authenticating our user using the FA go client library. We'll dive deep into this command shortly, so keep reading.
+1. The `fetch` command is responsible for fetching cool gifs from giphy, but only if the user is authenticated. The message is clear: authenticate and be rewarded with gifs. 😎
+1. The `logout` command is responsible for logging our user out. Simple enough!
+
+Awesome -- next up let's talk about our `login` command as that is going to cover the most important part of our example application: Authentication using the Device Flow.
 
 
 ## Golang `login` Walkthrough
 
-First, let's break down what we need to do to accomplish our Device Flow authorization:
+First, let's talk about the steps we need to accomplish for our Device Flow authentication:
 
 1. We need to reach out to the FA server to start the Device Code Flow and fetch a User Code for our user to input.
 1. We need to display our user's User Code, open the browser for them to FA's 'Device code login' page, and then start polling the FA server for when the user has completed the login flow.
-1. Once the user has completed the login flow, our polling of the FA server should respond back with a JWT Access Token. We can then use that Access Token to get information about our user and save that to disk as successful validation that our user logged in.
+1. Once the user has completed the login flow, our polling of the FA server should respond back with a JWT Access Token. We can then trade that Access Token with the FA server to get information about our user and save that to disk as successful validation that our user is logged in.
 
-Sounds great - let's dive deeper into each of those steps!
+Sounds great - let's dive into each of those steps!
 
 ### Starting the Device Code Flow
 
@@ -75,10 +88,10 @@ To start the Device Flow off, we need to send the ["Device Authorization Request
 ```go
 // ...
 
-// LoginCmd provides the Cobra sub command for logging into the FA server.
+// LoginCmd provides the command for logging into the FA server using the Device Flow.
 var LoginCmd = &cobra.Command{
-   Use:   "login [no options!]",
-   Short: "Login to the FA server using the OAuth device code grant type.",
+   Use:   "login",
+   Short: "Authenticate to the FA server using the OAuth Device Flow.",
    Run: func(cmd *cobra.Command, args []string) {
       faClient = fusionauth.NewClient(httpClient, baseURL, apiKey)
       openIDConfig, err := faClient.RetrieveOpenIdConfiguration()
@@ -99,7 +112,7 @@ func startDeviceGrantFlow(deviceAuthEndpoint string) (*fusionauth.DeviceResponse
    var result *fusionauth.DeviceResponse = &fusionauth.DeviceResponse{}
 
    resp, err := http.PostForm(deviceAuthEndpoint, url.Values{
-      "client_id":            {"7dde5f47-5000-4580-8003-b3b8d1cbe2e9"},
+      "client_id":            {ClientID},
       "scope":                {"offline_access"},
       "metaData.device.name": {"Golang CLI App"},
       "metaData.device.type": {string(fusionauth.DeviceType_OTHER)},
@@ -120,7 +133,7 @@ func startDeviceGrantFlow(deviceAuthEndpoint string) (*fusionauth.DeviceResponse
 
 Here you can see the following:
 
-1. We have our login subcommand, where our main logic is in our `Run` field.
+1. We have our login command, where our main logic is in our `Run` function.
 1. Our `Run` func starts off by creating a `FusionAuthClient` and assigning it to `faClient`. This is using FA's [go-client](github.com/FusionAuth/go-client/pkg/fusionauth) library, which will be our primary interface to our FA server going forward and is going to come in handy throughout our Device Flow.
 1. Next, we call `faClient.RetrieveOpenIdConfiguration` which provides us an `openIDConfig` of type [OpenIdConfiguration](https://pkg.go.dev/github.com/FusionAuth/go-client/pkg/fusionauth?tab=doc#OpenIdConfiguration). This will be handy as we'll be able to get some important OAuth endpoints from that configuration.
 1. Lastly, we call `startDeviceGrantFlow` with `openIDConfig.DeviceAuthorizationEndpoint`. This function sends the "Device Authorization Request" we mentioned earlier and populates the response into the `result` object which is of type [`fusionauth.DeviceResponse`](https://pkg.go.dev/github.com/FusionAuth/go-client/pkg/fusionauth?tab=doc#DeviceResponse).
@@ -134,10 +147,10 @@ Alright, now that we've got a User Code we need to show that code to the user so
 Again, let's look at some code and then work our way through it:
 
 ```go
-// LoginCmd provides the subcommand for logging into the FA server using the Device Flow.
+// LoginCmd provides the command for logging into the FA server using the Device Flow.
 var LoginCmd = &cobra.Command{
-	Use:   "login [no options!]",
-	Short: "Login to the FA server using the OAuth Device Flow.",
+    Use:   "login",
+    Short: "Authenticate to the FA server using the OAuth Device Flow.",
 	Run: func(cmd *cobra.Command, args []string) {
 		faClient = fusionauth.NewClient(httpClient, baseURL, apiKey)
 		openIDConfig, err := faClient.RetrieveOpenIdConfiguration()
@@ -225,9 +238,8 @@ func startPolling(tokenEndpoint string, deviceCode string, retryInterval int) (*
 
 This should look familiar! We start with our LoginCmd's `Run` function again, but we continue that function a bit more to do the following:
 
-1. We call `informUserAndOpenBrowser` with our `deviceResp.UserCode` that we got from the FA server. This prints to the user's CLI the given `userCode` and open's up FA's `/oauth2/device` endpoint for our Application and Tenant. This looks similar to the following:
-   ![gif of getgif - whoa meta](../img/fa-login-example.gif)
-1. Next, we call `startPolling` which continually polls the given `openIDConfig.TokenEndpoint` every `retryInterval` seconds (5 seconds is RFC8628's default) to see if the user has completed the Device login (tied to the given `deviceCode`). Once the user has completed their login, the FA server responds with a proper 200 including a JWT Access Token which is then populated into our `result` object and returned.
+1. We call `informUserAndOpenBrowser` with our `deviceResp.UserCode` that we got from the FA server. This prints to the user's CLI the given `userCode` and open's up FA's `/oauth2/device` endpoint for our Application and Tenant.
+1. Next, we call `startPolling` which continually polls the given `openIDConfig.TokenEndpoint` every `retryInterval` seconds (5 seconds is RFC8628's / FA's default) to see if the user has completed the Device login (tied to the given `deviceCode`). Once the user has completed their login, the FA server responds with a proper `200` response including a JWT Access Token which is then populated into our `result` object and returned.
 
 Now we're getting somewhere! The only thing left to do is trade our JWT for the actual user record and save it to disk. Let's do it!
 
@@ -270,7 +282,7 @@ Great stuff, we send off our JWT to FA, FA's go-client intelligently responds wi
 
 ## Working!
 
-Now, since this is a post about using using FusionAuth and not about the Giphy API, I won't dig into `fetch.go` too much and I'll leave that to you but suffice to say it's pretty simple. Here is the whole flow in action:
+Now, since this is a post about using using FusionAuth and not about the Giphy API, I won't dig into the `fetch` command too much and I'll leave that to you but suffice to say it's pretty simple. Here is the whole flow in action:
 
 ![full gif of getgif - more meta](../img/fa-getgif-full-example.gif)
 
@@ -278,4 +290,4 @@ Now, since this is a post about using using FusionAuth and not about the Giphy A
 
 In this post, we went through how we could easily accomplish authenticating a CLI application using the Device Code grant, FusionAuth, and the FusionAuth golang client library. We got into all the gritty details in `login.go` so you as the reader can walk away and implement this flow in your own FusionAuth backed, golang application. And finally, we saw it all working with a sweet gopher gif at the end!
 
-Now this post just shows off one grant type that FusionAuth supports, so if you're interested in others then I suggest checking out [the FusionAuth documentation](https://fusionauth.io/docs/) as there is a lot more that is possible! And if you're interested in learning more about the Golang client library then be sure to [check out the code](https://github.com/FusionAuth/go-client/tree/master/pkg/fusionauth) and [the corresponding godoc](https://pkg.go.dev/github.com/FusionAuth/go-client/pkg/fusionauth?tab=doc) as both are easy to understand and read!
+Now this post just shows off one grant type that FusionAuth supports, so if you're interested in others then I suggest checking out [the FusionAuth documentation](https://fusionauth.io/docs/) as there is a lot more that is possible! And if you're interested in learning more about the Golang client library then be sure to [check out the code](https://github.com/FusionAuth/go-client/tree/master/pkg/fusionauth) and [the corresponding godoc](https://pkg.go.dev/github.com/FusionAuth/go-client/pkg/fusionauth?tab=doc) as both are easy to read and understand!
