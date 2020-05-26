@@ -48,7 +48,7 @@ Great -- your FA Application is setup, so now we just need two more things from 
 
 Sweet, our FA administrivia is out of the way now that we have our Client ID, Tenant ID, and API Key! Hurrah!
 
-Finally, let's get our CLI app cloned and setup so you can follow along:
+Last setup item: Let's get our CLI app ([masterpointio/getgif](https://github.com/masterpointio/getgif)) cloned and setup so you can follow along:
 
 1. Open up your favorite terminal and clone our project: `git clone git@github.com:masterpointio/getgif.git`
 1. Change directories into this new project and crack open the `.env` file with your favorite text editor. Here you'll see 3 variables that should look familar! Fill in those variables with your Client ID, Tenant ID, and API Key and then save and exit that file.
